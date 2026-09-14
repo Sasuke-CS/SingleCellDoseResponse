@@ -1,300 +1,264 @@
-Developed by Omar Kana <kanaomar@msu.edu>
+# 单细胞药物扰动响应预测与剂量建模
 
-CLI integration by David Filipovic <filipov4@msu.edu>
+本仓库是基于 **scVIDR** 和 **sci-Plex 3** 数据完成的单细胞药物扰动预测考核项目。项目以 A549 为目标细胞系，在训练阶段完全隐藏其药物处理样本，仅利用 A549 对照细胞以及 K562、MCF7 的对照和给药数据，预测 A549 在不同药物与剂量下的转录组响应。
 
-Maintained by David Filipovic <filipov4@msu.edu>
+项目完成了以下工作：
 
-## Assessment implementation
+1. 使用变分自编码器和潜空间扰动回归完成未见 A549 给药条件的表达预测；
+2. 保留并复现 scVIDR 原始对数线性剂量模型；
+3. 使用归一化 Hill 函数改进非线性剂量响应建模；
+4. 进一步提出剂量特异方向回归（Dose-Specific Direction Regression，DSDR）；
+5. 使用 Pearson、$R^2$、代表性基因剂量曲线和共同 UMAP 进行评价；
+6. 提供完整 Python 代码、结果数据、图表以及 LaTeX/PDF 报告。
 
-This repository also contains a reproducible assessment implementation for
-single-cell dose-response prediction on sci-Plex 3:
+## 实验设计
 
-- [`任务一/`](任务一/): held-out A549 perturbation prediction with scVIDR;
-- [`任务二/`](任务二/): original log-linear scaling, normalized Hill scaling,
-  and dose-specific direction regression (DSDR);
-- [`报告/考核报告.pdf`](报告/考核报告.pdf): the compiled 13-page Chinese report;
-- [`报告/考核报告.tex`](报告/考核报告.tex): the self-contained XeLaTeX source.
+### 数据与条件
 
-The raw dataset, generated H5AD matrices, runtime caches, and trained weight
-files are intentionally excluded from Git. The experiment scripts regenerate
-these artifacts after placing the source dataset in `data/` and activating the
-`scVIDR` Conda environment.
+- 数据集：Srivatsan 等人发布的 sci-Plex 3 单细胞化学扰动数据；
+- 目标细胞系：A549；
+- 源细胞系：K562、MCF7；
+- 目标药物：`(+)-JQ1`、`Trametinib (GSK1120212)`；
+- 非零剂量：10、100、1,000、10,000 nM；
+- 时间点：24 h；
+- 建模基因：从训练集选择的 2,000 个高变基因；
+- 最终数据规模：6,892 个细胞，其中训练集 5,370 个，测试集 1,522 个。
 
-# scVIDR
-Single Cell Variational Inference of the Dose Response (scVIDR) a  variational autoencoder tool used to predict expression of chemcial perturbations across cell types.
+### 防止数据泄漏
 
-[![DOI](https://zenodo.org/badge/549268647.svg)](https://zenodo.org/badge/latestdoi/549268647)
+A549 的两种药物、全部非零剂量样本均只用于最终测试。以下步骤仅使用训练集完成：
 
-## Publication
-[Publication in Patterns](https://doi.org/10.1016/j.patter.2023.100817)
+- 表达基因过滤；
+- 总量归一化与 `log1p` 变换；
+- 高变基因选择；
+- VAE 训练；
+- 潜空间扰动回归；
+- Hill 参数及其他剂量模型拟合。
 
-## Installation
+## 方法
+
+### 任务一：条件特异 scVIDR
+
+首先训练 VAE，将 2,000 维表达向量压缩到 32 维潜空间。对每个源细胞系、药物和剂量，计算处理组与对照组的潜空间中心差：
+
+$$
+\Delta_{c,p,d}=\bar z_{c,p,d}-\bar z_{c,\mathrm{control}}.
+$$
+
+随后根据 K562 和 MCF7 的响应，对 A549 的条件特异扰动向量进行线性外推。将预测向量加到 A549 对照细胞的潜表示后，通过 VAE 解码器生成处理后表达。
+
+### 任务二原模型：对数线性缩放
+
+原始多剂量模型使用最大剂量扰动方向，并按照对数剂量比例缩放：
+
+$$
+\alpha_{\log}(d)=\frac{\log(d+1)}{\log(d_{\max}+1)}.
+$$
+
+该方法稳定且无需额外拟合，但假设所有剂量共享同一潜空间方向。
+
+### 改进方法一：归一化 Hill 函数
+
+为表示阈值、转折和饱和效应，引入归一化 Hill 函数：
+
+$$
+\alpha_{\mathrm{Hill}}(d)=
+\frac{d^h/(EC_{50}^h+d^h)}
+{d_{\max}^h/(EC_{50}^h+d_{\max}^h)}.
+$$
+
+参数完全根据 K562、MCF7 的训练响应拟合，不使用 A549 给药真值。
+
+### 改进方法二：DSDR
+
+Hill 模型仍只能调整最大剂量扰动向量的长度。DSDR 为每个药物—剂量条件独立估计潜空间响应，并将该响应跨细胞系回归到 A549，因此允许响应方向随剂量变化：
+
+$$
+\Delta_{c,p,d,j}=a_{p,d,j}\bar z_{c,\mathrm{ctrl},j}+b_{p,d,j}.
+$$
+
+DSDR 是本项目中恢复关键差异表达基因效果最好的方案。
+
+## 主要结果
+
+### 任务一
+
+在 8 个 A549 测试条件的全部保留基因上：
+
+- Pearson 相关系数范围：**0.9013–0.9885**；
+- $R^2$ 范围：**0.8096–0.9698**；
+- 相比直接使用 A549 对照均值的基线，scVIDR 在 **5/8** 个条件上取得更高的 $R^2$。
+
+| 药物 | 剂量/nM | Pearson | $R^2$ |
+|---|---:|---:|---:|
+| (+)-JQ1 | 10 | 0.9885 | 0.9698 |
+| (+)-JQ1 | 100 | 0.9759 | 0.9486 |
+| (+)-JQ1 | 1,000 | 0.9454 | 0.8930 |
+| (+)-JQ1 | 10,000 | 0.9372 | 0.8738 |
+| Trametinib | 10 | 0.9141 | 0.8295 |
+| Trametinib | 100 | 0.9175 | 0.8415 |
+| Trametinib | 1,000 | 0.9048 | 0.8096 |
+| Trametinib | 10,000 | 0.9013 | 0.8111 |
+
+### 剂量模型比较
+
+在 Top-100 差异表达基因上：
+
+- Hill 模型在 6/6 个非最大剂量条件上提高 $R^2$；
+- Hill 在全部 8 个条件上的平均 $R^2$ 增益为 **0.0075**；
+- DSDR 同样在 6/6 个非最大剂量条件上提高 $R^2$；
+- DSDR 的平均 $R^2$ 增益为 **0.0107**；
+- 最大增益出现在 Trametinib 1,000 nM，$R^2$ 从 0.4320 提升至 **0.4668**，增益为 **0.0348**。
+
+| 药物 | 剂量/nM | 对数线性 $R^2$ | Hill $R^2$ | DSDR $R^2$ |
+|---|---:|---:|---:|---:|
+| (+)-JQ1 | 10 | 0.9157 | **0.9217** | 0.9161 |
+| (+)-JQ1 | 100 | 0.9086 | 0.9089 | **0.9118** |
+| (+)-JQ1 | 1,000 | 0.8027 | **0.8147** | 0.8136 |
+| (+)-JQ1 | 10,000 | 0.7377 | 0.7377 | 0.7377 |
+| Trametinib | 10 | 0.5441 | **0.5614** | 0.5611 |
+| Trametinib | 100 | 0.6416 | 0.6544 | **0.6610** |
+| Trametinib | 1,000 | 0.4320 | 0.4433 | **0.4668** |
+| Trametinib | 10,000 | 0.4659 | 0.4659 | 0.4659 |
+
+DSDR 更擅长恢复强响应基因，但其全基因平均 $R^2$ 相对原模型下降约 0.0038。因此，本项目的结论是：DSDR 在关键差异表达响应上优于标量剂量插值，但并非在所有评价口径上全面优于原模型。
+
+## 结果图示
+
+### 任务一指标
+
+![任务一指标热图](任务一/figures/metric_heatmaps.png)
+
+### 剂量模型对比
+
+![三种剂量模型指标](任务二/figures/better_method_metrics.png)
+
+### 代表性基因剂量曲线
+
+![代表性基因剂量曲线](任务二/figures/better_method_gene_curves.png)
+
+### 共同 UMAP
+
+![共同 UMAP](任务二/figures/better_method_umap.png)
+
+## 仓库结构
+
+```text
+SingleCellDoseResponse/
+├── data/                       # 原始数据目录，不上传到 Git
+├── docs/
+│   └── 要求.md                 # 考核任务要求
+├── 任务一/
+│   ├── run_task1.py            # 数据预处理、VAE 训练与条件特异预测
+│   ├── README.md               # 任务一结果说明
+│   ├── metrics.csv             # 分条件评价指标
+│   └── figures/                # 指标图与共同 UMAP
+├── 任务二/
+│   ├── original_scvidr_loglinear.py
+│   ├── hill_dose_model.py
+│   ├── dose_specific_direction.py
+│   ├── run_task2.py            # 对数线性与 Hill 正式实验
+│   ├── run_better_method.py    # DSDR 正式实验
+│   ├── explore_*.py            # 其他探索性方法
+│   ├── README.md
+│   ├── 更好方法.md
+│   ├── metrics_three_methods.csv
+│   └── figures/
+├── 报告/
+│   ├── 考核报告.tex            # XeLaTeX 源文件
+│   ├── 考核报告.pdf            # 完整考核报告
+│   └── figures/
+├── 01_inspect_data.py          # 原始数据结构检查
+└── requirements.txt
 ```
-git clone https://github.com/BhattacharyaLab/scVIDR.git
-cd scVIDR
+
+## 环境配置
+
+实验使用的主要环境如下：
+
+- Python 3.8.5；
+- Scanpy 1.9.1；
+- AnnData 0.8.0；
+- PyTorch 1.8.1 + CUDA 11.1；
+- NVIDIA GeForce RTX 3070 Laptop GPU。
+
+环境已经创建时，可直接激活：
+
+```bash
+conda activate scVIDR
+```
+
+若需重新配置，可参考：
+
+```bash
 conda create -n scVIDR python=3.8.5
 conda activate scVIDR
-pip3 install -r requirements.txt
-pip3 install geomloss==0.2.5
-pip install torch==1.8.1+cu111 torchaudio==0.8.1 torchvision==0.9.1 -f https://download.pytorch.org/whl/torch_stable.html
+pip install -r requirements.txt
+pip install geomloss==0.2.5
+pip install torch==1.8.1+cu111 torchaudio==0.8.1 torchvision==0.9.1 \
+  -f https://download.pytorch.org/whl/torch_stable.html
 ```
 
-## Data
-To get the data directory for figure notebooks: 
-https://drive.google.com/file/d/11fzDbp0B19Dy47MtD742Jl4Hz2bdSiiq/view?usp=sharing
+## 数据准备
 
-Once you download `data.zip` copy it to `scVIDR/data` and unzip it there.
+将原始文件放置为：
 
-
-## VAE model training (single- and multi- dose models)
-
-```
-To train a single dose VAE model run the `scvidr_train.py single_dose` command (Figure 2 of the manuscript).
-
-To train a multi dose VAE model run the `scvidr_train.py multi_dose` command (Figure 3 of the manuscript).
-
-
-Both types of models expect an AnnData file in the h5ad format as input. In addition to the scRNAseq data, the obs table is also expected to contain a dose and a cell type column.
-The single dose model expects at least two distinct doses, whereas the multi dose model expects at least three.
-
-Command arguments are the same for both types of models and are listed below.
-
- 
-
-usage: `scvidr_train.py {single_dose/multi_dose} [-h] [--dose_column DOSE_COLUMN] [--celltype_column CELLTYPE_COLUMN] [--test_celltype TEST_CELLTYPE] [--treated_dose CONTROL_DOSE] [--treated_dose TREATED_DOSE] [--celltypes_keep CELLTYPES_KEEP] h5ad_data_file model_path`
+```text
+data/SrivatsanTrapnell2020_sciplex3.h5ad
 ```
 
-Train a VAE model applicable to scGen and scVIDR using a h5ad input dataset
+原始数据、派生 H5AD 文件、训练权重和运行缓存体积较大，已通过 `.gitignore` 排除。仓库保留了轻量指标、图表和配置文件。
 
-positional arguments:
-```
-  h5ad_data_file        The data file containing the raw reads in h5ad format
+## 运行方法
 
-  model_path            Path to the directory where the trained model will be saved
+在仓库根目录依次执行：
 
-```
+```bash
+conda activate scVIDR
 
-model arguments:
-```
-  -h, --help            show this help message and exit
-  --dose_column DOSE_COLUMN
-                        Name of the column within obs dataframe representing the dose (default "Dose")
-  --celltype_column CELLTYPE_COLUMN
-                        Name of the column within obs dataframe representing the cell type (default "celltype")
-  --test_celltype TEST_CELLTYPE
-                        Name of the cell type to be left out for testing - surround by quotation marks for cell types containing spaces (default "Hepatocytes - portal"
-  --control_dose CONTROL_DOSE
-                        Control dose (default "0")
-  --treated_dose TREATED_DOSE
-                        Treated dose (default "30")
-  --celltypes_keep CELLTYPES_KEEP
-                        Cell types to keep in the dataset during training/testing - either a file containing list of cell types (one cell type per line) or semicolon separated list of cell types (surround in quotation marks) - default all available cell types
-                        (default "ALL")
+# 任务一：预处理、训练 VAE 并预测 A549 给药响应
+python 任务一/run_task1.py
+
+# 任务二：复现对数线性模型并拟合 Hill 模型
+python 任务二/run_task2.py
+
+# 进一步改进：运行 DSDR
+python 任务二/run_better_method.py
 ```
 
+所有脚本均使用固定随机种子。运行配置分别记录在 `任务一/run_config.json`、`任务二/run_config.json` 和 `任务二/better_method_run_config.json`。
 
-To train all the single dose models for all individual cell types used in the manuscript execute
+## 报告
 
-```
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Hepatocytes - portal" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Hepatocytes - central.pt/"
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Hepatocytes - central" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Hepatocytes - portal.pt/"
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Cholangiocytes" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Cholangiocytes.pt/"
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Stellate Cells" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Stellate Cells.pt/"
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Portal Fibroblasts" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Portal Fibroblasts.pt/"
-python scvidr_train.py single_dose --celltypes_keep ../metadata/liver_celltypes --test_celltype "Endothelial Cells" ../data/nault2021_singleDose.h5ad "../data/VAE_Binary_Prediction_Dioxin_5000g_Endothelial Cells.pt/"
-```
+- [完整 PDF 报告](报告/考核报告.pdf)
+- [LaTeX 源文件](报告/考核报告.tex)
+- [任务一结果说明](任务一/README.md)
+- [任务二结果说明](任务二/README.md)
+- [DSDR 方法说明](任务二/更好方法.md)
 
+报告使用 XeLaTeX 编译：
 
-To train all the multi dose models for all individual cell types used in the manuscript execute
-
-```
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Hepatocytes - central" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Hepatocytes - central.pt/"
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Hepatocytes - portal" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Hepatocytes - portal.pt/"
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Cholangiocytes" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Cholangiocytes.pt/"
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Stellate Cells" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Stellate Cells.pt/"
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Portal Fibroblasts" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Portal Fibroblasts.pt/"
-python scvidr_train.py multi_dose --control_dose 0.0 --celltypes_keep ../metadata/liver_celltypes --test_celltype "Endothelial Cells" ../data/nault2021_multiDose.h5ad "../data/VAE_Cont_Prediction_Dioxin_5000g_Endothelial Cells.pt/"
+```bash
+cd 报告
+xelatex 考核报告.tex
+xelatex 考核报告.tex
 ```
 
+## 原模型保留说明
 
-**Note**: all of these models are available pretrained (same names as listed above)
+任务二未覆盖任务一模型及原始实现：
 
-## Single dose model prediction
-```
-usage: scvidr_predict.py single_dose [-h] [--model MODEL]
-                                     [--dose_column DOSE_COLUMN]
-                                     [--celltype_column CELLTYPE_COLUMN]
-                                     [--test_celltype TEST_CELLTYPE]
-                                     [--control_dose CONTROL_DOSE]
-                                     [--treated_dose TREATED_DOSE]
-                                     [--celltypes_keep CELLTYPES_KEEP]
-                                     h5ad_data_file model_path output_path
-```
-Predict treatment condition using a pretrained scVIDR or scGEN model
+- 原始对数线性实现：`任务二/original_scvidr_loglinear.py`；
+- 原任务一脚本及模型元数据保留在 `任务一/`；
+- 完整性记录：`任务二/preservation_manifest.json`。
 
-positional arguments:
-```
-h5ad_data_file        The data file containing the raw reads in h5ad format
-  model_path            Path to the directory where the trained model was
-                        saved in the model training step
-  output_path           Path to the driectory where the anndata will be output
-                        to in an h5ad format
-```
-optional arguments:
-```
-  -h, --help            show this help message and exit
-  --model MODEL         Use scVIDR or scGen for prediciton (defualt "scVIDR")
-  --dose_column DOSE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the dose (default "Dose")
-  --celltype_column CELLTYPE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the cell type (default "celltype")
-  --test_celltype TEST_CELLTYPE
-                        Name of the cell type to be left out for testing -
-                        surround by quotation marks for cell types containing
-                        spaces (default "Hepatocytes - portal"
-  --control_dose CONTROL_DOSE
-                        Control dose (default "0")
-  --treated_dose TREATED_DOSE
-                        Treated dose (default "30")
-  --celltypes_keep CELLTYPES_KEEP
-                        Cell types to keep in the dataset during
-                        training/testing - either a file containing list of
-                        cell types (one cell type per line) or semicolon
-                        separated list of cell types (surround in quotation
-                        marks) - default all available cell types (default
-                        "ALL")
-```
-Example of single does prediction command:
-```
-python scvidr_predict.py single_dose ../data/nault2021_singleDose.h5ad ../data/VAE_Binary_Prediction_Dioxin_5000g_Hepatocytes\ -\ portal.pt/ ../data/SingleDose_TCDD \--model scVIDR --dose_column Dose --celltype_column celltype --test_celltype Hepatocytes - portal --control_dose 0 --treated_dose 30 --celltypes_keep ../metadata/liver_celltypes
-```
-## Multi dose model prediction
-```
-usage: scvidr_predict.py multi_dose [-h] [--model MODEL]
-                                    [--dose_column DOSE_COLUMN]
-                                    [--celltype_column CELLTYPE_COLUMN]
-                                    [--test_celltype TEST_CELLTYPE]
-                                    [--control_dose CONTROL_DOSE]
-                                    [--treated_dose TREATED_DOSE]
-                                    [--celltypes_keep CELLTYPES_KEEP]
-                                    h5ad_data_file model_path output_path
+## 致谢与引用
 
-```
+本项目基于 Bhattacharya Lab 发布的 [scVIDR](https://github.com/BhattacharyaLab/scVIDR) 代码开展。原始方法与数据请引用：
 
-positional arguments:
-```
-  h5ad_data_file        The data file containing the raw reads in h5ad format
-  model_path            Path to the directory where the trained model was
-                        saved in the model training step
-  output_path           Path to the driectory where the anndata will be output
-                        to in an h5ad format
-```
+1. Kana O, Nault R, Filipovic D, et al. *Generative modeling of single-cell gene expression for dose-dependent chemical perturbations*. Patterns, 2023. DOI: [10.1016/j.patter.2023.100817](https://doi.org/10.1016/j.patter.2023.100817)。
+2. Srivatsan SR, McFaline-Figueroa JL, Ramani V, et al. *Massively multiplex chemical transcriptomics at single-cell resolution*. Science, 2020. DOI: [10.1126/science.aax6234](https://doi.org/10.1126/science.aax6234)。
 
-optional arguments:
-```
-  -h, --help            show this help message and exit
-  --model MODEL         Use scVIDR or scGen for prediciton (defualt "scVIDR")
-  --dose_column DOSE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the dose (default "Dose")
-  --celltype_column CELLTYPE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the cell type (default "celltype")
-  --test_celltype TEST_CELLTYPE
-                        Name of the cell type to be left out for testing -
-                        surround by quotation marks for cell types containing
-                        spaces (default "Hepatocytes - portal"
-  --control_dose CONTROL_DOSE
-                        Control dose (default "0")
-  --treated_dose TREATED_DOSE
-                        Treated dose (default "30")
-  --celltypes_keep CELLTYPES_KEEP
-                        Cell types to keep in the dataset during
-                        training/testing - either a file containing list of
-                        cell types (one cell type per line) or semicolon
-                        separated list of cell types (surround in quotation
-                        marks) - default all available cell types (default
-                        "ALL")
-```
+## 许可证
 
-Example of multidose prediction command:
-```
-python scvidr_predict.py multi_dose ../data/nault2021_multiDose.h5ad ../data/VAE_Cont_Prediction_Dioxin_5000g_Hepatocytes\ -\ portal.pt/ ../data/MultiDose_TCDD \--model scVIDR --dose_column Dose --celltype_column celltype --test_celltype Hepatocytes - portal --control_dose 0.0 --treated_dose 30.0 --celltypes_keep ../metadata/liver_celltypes
-```
-## Calculate Gene Scores
-```
-usage: scvidr_genescores.py [-h] [--dose_column DOSE_COLUMN]
-                            [--celltype_column CELLTYPE_COLUMN]
-                            [--test_celltype TEST_CELLTYPE]
-                            [--control_dose CONTROL_DOSE]
-                            [--treated_dose TREATED_DOSE]
-                            [--celltypes_keep CELLTYPES_KEEP]
-                            [--training_size TRAINING_SIZE]
-                            h5ad_data_file model_path output_path
-```
-Interpret scVIDR predictions using ridge regression. Outputs CSV file of gene
-scores.
-
-positional arguments:
-```
-  h5ad_data_file        The data file containing the raw reads in h5ad format
-  model_path            Path to the directory where the trained model was
-                        saved in the model training step
-  output_path           Path to the driectory where the gene scores will be
-                        saved as a csv file
-```
-
-optional arguments:
-```
-  -h, --help            show this help message and exit
-  --dose_column DOSE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the dose (default "Dose")
-  --celltype_column CELLTYPE_COLUMN
-                        Name of the column within obs dataframe representing
-                        the cell type (default "celltype")
-  --test_celltype TEST_CELLTYPE
-                        Name of the cell type to be left out for testing -
-                        surround by quotation marks for cell types containing
-                        spaces (default "Hepatocytes - portal"
-  --control_dose CONTROL_DOSE
-                        Control dose (default "0")
-  --treated_dose TREATED_DOSE
-                        Treated dose (default "30")
-  --celltypes_keep CELLTYPES_KEEP
-                        Cell types to keep in the dataset during
-                        training/testing - either a file containing list of
-                        cell types (one cell type per line) or semicolon
-                        separated list of cell types (surround in quotation
-                        marks) - default all available cell types (default
-                        "ALL")
-  --training_size TRAINING_SIZE
-                        Number of samples generated from latent distribution
-```
-
-Example of calculating gene_scores:
-```
-
-python scvidr_genescores.py ../data/nault2021_multiDose.h5ad ../data/VAE_Cont_Prediction_Dioxin_5000g_Hepatocytes\ -\ portal.pt/ ../data/MultiDose_TCDD  --dose_column Dose --celltype_column celltype --test_celltype Hepatocytes\ -\ portal --control_dose 0.0 --treated_dose 30.0 --celltypes_keep ../metadata/liver_celltypes
-```
-
-
-## Notebooks for figures
-
-figure       | notebook path| Description|
----------------| ---------------| ---------------|
-| [*Figure 2*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/Figure2.ipynb)| notebooks/Figure2.ipynb| Single Dose TCDD| 
-| [*Figure 3*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/Figure3.ipynb)| notebooks/Figure3.ipynb| Multi Dose TCDD|
-| [*Figure 4*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/Figure4.ipynb)| notebooks/Figure4.ipynb| Gene Scores|
-| [*Figure 5*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/Figure5.ipynb)| notebooks/Figure5.ipynb| Pseudodose|
-| [*Supplemental Figure 2*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure2.ipynb)| notebooks/SupplementalFigure2.ipynb|PCA of $\delta$| 
-| [*Supplemental Figure 3*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure3.ipynb)| notebooks/SupplementalFigure3.ipynb| Single Dose IFNB|
-| [*Supplemental Figure 4*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure4.ipynb)| notebooks/SupplementalFigure4.ipynb| Multi Dose sciplex|
-| [*Supplemental Figure 5*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure5.ipynb)| notebooks/SupplementalFigure5.ipynb| scVIDR Analysis TCDD|
-| [*Supplemental Figure 6*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure6.ipynb)| notebooks/SupplementalFigure6.ipynb| scVIDR Analysis sciplex|
-| [*Supplemental Figure 7*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure7.ipynb)| notebooks/SupplementalFigure7.ipynb| scVIDR cross study| 
-| [*Supplemental Figure 8*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure8.ipynb)| notebooks/SupplementalFigure8.ipynb| scVIDR cross species|
-| [*Supplemental Figure 9*](https://nbviewer.org/github/BhattacharyaLab/scVIDR/blob/main/notebooks/SupplementalFigure9.ipynb)| notebooks/SupplementalFigure9.ipynb| scVIDR equal scGen|
-
+原始 scVIDR 代码及本仓库内容遵循仓库中的 [LICENSE](LICENSE)。
