@@ -83,11 +83,51 @@ DSDR 是本项目中恢复关键差异表达基因效果最好的方案。
 
 在确定 Hill 和 DSDR 作为正式改进方案前，还尝试了四种训练数据驱动的方法。相关探索代码或结果均被保留，测试集只用于最终评价。
 
+以下记 $c\in\{K562,MCF7\}$ 为源细胞系，$p$ 为药物，$d$ 为剂量，$g$ 为基因，$D(\cdot)$ 为训练好的 VAE 解码器，$\bar{\boldsymbol z}_{c,0}$ 为细胞系 $c$ 的对照潜空间中心，$\boldsymbol\Delta_{c,p,d_{\max}}$ 为其最大剂量扰动向量。
+
 #### 1. 经验单调校准
 
 对应代码：[任务二/explore_calibrated_method.py](任务二/explore_calibrated_method.py)。
 
 该方法不预设对数或 Hill 曲线，而是根据 K562、MCF7 在不同剂量下的潜空间投影比例，使用单调回归估计药物特异的经验缩放系数，再将其应用于 A549 最大剂量扰动方向。
+
+首先在候选网格 $\mathcal A=\{0,0.02,\ldots,1.20\}$ 上，用最大剂量方向生成源细胞系的候选预测均值：
+
+$$
+\widehat{\boldsymbol\mu}_{c,p,d}(\alpha)
+=\frac{1}{N_{c,0}}\sum_{i=1}^{N_{c,0}}
+D\!\left(\boldsymbol z_{c,0}^{(i)}+
+\alpha\boldsymbol\Delta_{c,p,d_{\max}}\right).
+$$
+
+每个中间剂量的原始经验系数通过两个源细胞系上的平均基因空间 MSE 确定：
+
+$$
+\widetilde\alpha_{p,d}
+=\underset{\alpha\in\mathcal A}{\arg\min}\;
+\frac{1}{2}\sum_{c\in\{K562,MCF7\}}
+\frac{1}{G}\left\|
+\widehat{\boldsymbol\mu}_{c,p,d}(\alpha)
+-\boldsymbol\mu_{c,p,d}^{\mathrm{true}}
+\right\|_2^2.
+$$
+
+为保证剂量响应单调且最大剂量归一化为 1，再在 $\log_{10}d$ 顺序上执行保序回归：
+
+$$
+\boldsymbol\alpha_p^{\mathrm{iso}}
+=\underset{0\leq a_{p,d_1}\leq\cdots\leq a_{p,d_{\max}}=1}{\arg\min}
+\sum_d\left(a_{p,d}-\widetilde\alpha_{p,d}\right)^2.
+$$
+
+最终 A549 预测为
+
+$$
+\widehat{\boldsymbol x}_{i,p,d}
+=D\!\left(\boldsymbol z_{A549,0}^{(i)}
++\alpha_{p,d}^{\mathrm{iso}}
+\widehat{\boldsymbol\Delta}_{A549,p,d_{\max}}\right).
+$$
 
 - 全基因平均 $R^2$ 增益：**-0.0022**；
 - Top-100 DE 平均 $R^2$ 增益：**+0.0082**。
@@ -100,6 +140,35 @@ DSDR 是本项目中恢复关键差异表达基因效果最好的方案。
 
 该方法先计算源细胞系真实剂量响应与对数线性预测之间的残差，再尝试将平均残差迁移到 A549，以校正原模型无法解释的非线性部分。
 
+源细胞系 $c$ 在基因 $g$ 上的对数线性残差定义为：
+
+$$
+r_{c,p,d,g}=\mu_{c,p,d,g}^{\mathrm{true}}
+-\widehat\mu_{c,p,d,g}^{\log}.
+$$
+
+由于只有在两个源细胞系中方向一致的残差才可能具有可迁移性，使用指数一致性权重：
+
+$$
+w_{p,d,g}=\exp\!\left(
+-\frac{|r_{K562,p,d,g}-r_{MCF7,p,d,g}|}{0.25}
+\right),
+$$
+
+并构造收缩后的基因级修正量：
+
+$$
+q_{p,d,g}=\frac{r_{K562,p,d,g}+r_{MCF7,p,d,g}}{2}
+\,w_{p,d,g}.
+$$
+
+最终将该修正直接加到 A549 原始对数线性解码结果：
+
+$$
+\widehat x_{i,p,d,g}^{\mathrm{res}}
+=\widehat x_{i,p,d,g}^{\log}+q_{p,d,g}.
+$$
+
 - 全基因平均 $R^2$ 增益：**-0.0022**；
 - Top-100 DE 平均 $R^2$ 增益：**-0.0026**。
 
@@ -111,6 +180,39 @@ DSDR 是本项目中恢复关键差异表达基因效果最好的方案。
 
 该方法根据训练集中的差异表达强度构造基因级权重，仅对高响应基因加强改进模型的修正，而让稳定基因更多保留原始对数线性预测，以缓解“Top-100 DE 提升但全基因退化”的矛盾。
 
+先计算每个源细胞系在所有剂量上的平均药物效应：
+
+$$
+e_{c,p,g}=\frac{1}{|\mathcal D|}
+\sum_{d\in\mathcal D}
+\left(\mu_{c,p,d,g}-\mu_{c,0,g}\right).
+$$
+
+训练 DE 得分同时考虑响应幅度和两个源细胞系的符号一致性：
+
+$$
+s_{p,g}=\frac{|e_{K562,p,g}|+|e_{MCF7,p,g}|}{2}
+\times
+\begin{cases}
+1, & \operatorname{sign}(e_{K562,p,g})=\operatorname{sign}(e_{MCF7,p,g}),\\
+0.25, & \text{其他情况}.
+\end{cases}
+$$
+
+按 $s_{p,g}$ 从大到小排序，只对训练得分最高的 500 个基因启用 Hill 预测：
+
+$$
+w_{p,g}=\mathbb I\!\left[\operatorname{rank}(s_{p,g})\leq500\right],
+$$
+
+$$
+\widehat\mu_{p,d,g}^{\mathrm{hybrid}}
+=(1-w_{p,g})\widehat\mu_{p,d,g}^{\log}
++w_{p,g}\widehat\mu_{p,d,g}^{\mathrm{Hill}}.
+$$
+
+因此，该实现是确定性的二元门控，而不是使用 A549 测试 DE 基因调节权重。
+
 - 全基因平均 $R^2$ 增益：**-0.0016**；
 - Top-100 DE 平均 $R^2$ 增益：**+0.0028**。
 
@@ -121,6 +223,27 @@ DSDR 是本项目中恢复关键差异表达基因效果最好的方案。
 对应代码：[任务二/explore_control_anchor.py](任务二/explore_control_anchor.py)。
 
 该方法利用 A549 对照表达与源细胞系对照表达之间的差异，对迁移后的剂量响应进行目标域锚定，希望减少细胞系基线差异造成的偏移。
+
+具体地，先计算 A549 对照细胞真实平均表达与 VAE 自重构均值之间的基因级偏差：
+
+$$
+q_g^{A549}
+=\mu_{A549,0,g}^{\mathrm{observed}}
+-\frac{1}{N_{A549,0}}
+\sum_{i=1}^{N_{A549,0}}
+D_g\!\left(\boldsymbol z_{A549,0}^{(i)}\right).
+$$
+
+然后假设该解码偏差在给药后仍保持不变，将其加到所有药物和剂量的对数线性预测：
+
+$$
+\widehat x_{i,p,d,g}^{\mathrm{anchor}}
+=D_g\!\left(
+\boldsymbol z_{A549,0}^{(i)}
++\alpha_{\log}(d)
+\widehat{\boldsymbol\Delta}_{A549,p,d_{\max}}
+\right)+q_g^{A549}.
+$$
 
 - 全基因平均 $R^2$ 增益：**-0.0015**；
 - Top-100 DE 平均 $R^2$ 增益：**-0.0328**。
