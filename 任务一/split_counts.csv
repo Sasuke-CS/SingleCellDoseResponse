@@ -1,0 +1,28 @@
+split,cell_line,perturbation,dose_value,time,n_cells
+test,A549,(+)-JQ1,10.0,24.0,174
+test,A549,(+)-JQ1,100.0,24.0,183
+test,A549,(+)-JQ1,1000.0,24.0,218
+test,A549,(+)-JQ1,10000.0,24.0,223
+test,A549,Trametinib (GSK1120212),10.0,24.0,167
+test,A549,Trametinib (GSK1120212),100.0,24.0,176
+test,A549,Trametinib (GSK1120212),1000.0,24.0,210
+test,A549,Trametinib (GSK1120212),10000.0,24.0,171
+train,K562,(+)-JQ1,10.0,24.0,227
+train,K562,(+)-JQ1,100.0,24.0,204
+train,K562,(+)-JQ1,1000.0,24.0,161
+train,K562,(+)-JQ1,10000.0,24.0,144
+train,MCF7,(+)-JQ1,10.0,24.0,300
+train,MCF7,(+)-JQ1,100.0,24.0,300
+train,MCF7,(+)-JQ1,1000.0,24.0,300
+train,MCF7,(+)-JQ1,10000.0,24.0,300
+train,K562,Trametinib (GSK1120212),10.0,24.0,174
+train,K562,Trametinib (GSK1120212),100.0,24.0,174
+train,K562,Trametinib (GSK1120212),1000.0,24.0,190
+train,K562,Trametinib (GSK1120212),10000.0,24.0,196
+train,MCF7,Trametinib (GSK1120212),10.0,24.0,300
+train,MCF7,Trametinib (GSK1120212),100.0,24.0,300
+train,MCF7,Trametinib (GSK1120212),1000.0,24.0,300
+train,MCF7,Trametinib (GSK1120212),10000.0,24.0,300
+train,A549,control,0.0,24.0,500
+train,K562,control,0.0,24.0,500
+train,MCF7,control,0.0,24.0,500

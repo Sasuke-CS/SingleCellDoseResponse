@@ -1,0 +1,28 @@
+{
+  "seed": 20260913,
+  "target_cell_line": "A549",
+  "drugs": [
+    "(+)-JQ1",
+    "Trametinib (GSK1120212)"
+  ],
+  "doses_nM": [
+    10.0,
+    100.0,
+    1000.0,
+    10000.0
+  ],
+  "time_h": 24.0,
+  "epochs_requested": 60,
+  "n_hvg": 2000,
+  "train_cap": 300,
+  "control_cap": 500,
+  "runtime_seconds": 48.386199951171875,
+  "cuda_available": true,
+  "device": "NVIDIA GeForce RTX 3070 Laptop GPU",
+  "versions": {
+    "python": "3.8.5",
+    "scanpy": "1.9.1",
+    "anndata": "0.8.0",
+    "torch": "1.8.1+cu111"
+  }
+}

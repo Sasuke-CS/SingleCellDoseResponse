@@ -1,0 +1,3 @@
+drug,gene,selection,original_intermediate_rmse,improved_intermediate_rmse,rmse_improvement
+(+)-JQ1,THSD4,largest intermediate-dose RMSE gain among top100 high-dose DE genes,0.140280082821846,0.06709635257720947,0.07318373024463654
+Trametinib (GSK1120212),MKI67,largest intermediate-dose RMSE gain among top100 high-dose DE genes,0.3509649932384491,0.1703409105539322,0.1806240826845169

@@ -4,6 +4,22 @@ CLI integration by David Filipovic <filipov4@msu.edu>
 
 Maintained by David Filipovic <filipov4@msu.edu>
 
+## Assessment implementation
+
+This repository also contains a reproducible assessment implementation for
+single-cell dose-response prediction on sci-Plex 3:
+
+- [`任务一/`](任务一/): held-out A549 perturbation prediction with scVIDR;
+- [`任务二/`](任务二/): original log-linear scaling, normalized Hill scaling,
+  and dose-specific direction regression (DSDR);
+- [`报告/考核报告.pdf`](报告/考核报告.pdf): the compiled 13-page Chinese report;
+- [`报告/考核报告.tex`](报告/考核报告.tex): the self-contained XeLaTeX source.
+
+The raw dataset, generated H5AD matrices, runtime caches, and trained weight
+files are intentionally excluded from Git. The experiment scripts regenerate
+these artifacts after placing the source dataset in `data/` and activating the
+`scVIDR` Conda environment.
+
 # scVIDR
 Single Cell Variational Inference of the Dose Response (scVIDR) a  variational autoencoder tool used to predict expression of chemcial perturbations across cell types.
 

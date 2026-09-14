@@ -1,4 +1,11 @@
 data/
+*.h5ad
+*.pt
+.runtime_cache/
+*.aux
+*.out
+*.toc
+*.synctex.gz
 
 
 # Byte-compiled / optimized / DLL files

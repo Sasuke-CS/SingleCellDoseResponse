@@ -1,0 +1,6 @@
+{
+  "method": "dose-specific direction regression",
+  "seed": 20260913,
+  "runtime_seconds": 31.239424467086792,
+  "task1_model_read_only": true
+}

@@ -1,0 +1,19 @@
+{
+  "seed": 20260913,
+  "target_cell_line": "A549",
+  "drugs": [
+    "(+)-JQ1",
+    "Trametinib (GSK1120212)"
+  ],
+  "doses_nM": [
+    10.0,
+    100.0,
+    1000.0,
+    10000.0
+  ],
+  "original_method": "log1p(dose) / log1p(max_dose)",
+  "improved_method": "drug-specific normalized Hill fitted on K562 and MCF7 latent response projections",
+  "task1_model_read_only": "E:\\PyhtonFiles\\考核\\scVIDR\\任务一\\model",
+  "runtime_seconds": 33.15340614318848,
+  "device": "NVIDIA GeForce RTX 3070 Laptop GPU"
+}
